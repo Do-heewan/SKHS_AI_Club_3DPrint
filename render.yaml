@@ -1,0 +1,34 @@
+# Render Blueprint - 대시보드에서 New > Blueprint 로 이 저장소를 연결하면 아래 설정으로 서비스가 만들어집니다.
+# sync: false 인 값은 처음 만들 때 Render 화면에서 직접 입력합니다.
+services:
+  - type: web
+    name: skhs-ai-3dprint
+    runtime: node
+    region: singapore # 한국에서 가장 가까운 리전
+    plan: free # 수업 중 첫 접속 지연(무료 요금제 슬립)이 싫으면 starter 로 변경
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CLUBS
+        sync: false
+      - key: ACCESS_CODE
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CLAUDE_MODEL
+        value: claude-opus-5-5
+      - key: CLAUDE_EFFORT
+        value: medium
+      - key: DAILY_MESSAGE_LIMIT
+        value: "40"
+      - key: MAX_CONCURRENT
+        value: "8"

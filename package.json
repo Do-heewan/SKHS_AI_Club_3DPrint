@@ -1,0 +1,22 @@
+{
+  "name": "skhs-ai-3dprint",
+  "version": "1.0.0",
+  "description": "성광여고 AI 동아리 3D 프린트 도안 생성 서비스",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@supabase/supabase-js": "^2.118.0",
+    "express": "^5.3.0",
+    "openscad-wasm-prebuilt": "^1.2.0",
+    "three": "^0.186.1"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}

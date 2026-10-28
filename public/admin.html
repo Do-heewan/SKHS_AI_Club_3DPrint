@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>관리자 · 성광 AI 3D 스튜디오</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    body { padding: 24px; }
+    .admin { max-width: 1100px; margin: 0 auto; display: grid; gap: 16px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row input { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+    .stat { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .stat b { display: block; font-size: 1.4rem; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: 0.9rem; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { background: #f7f8fb; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="admin">
+    <h1>관리자 페이지</h1>
+    <form id="f" class="row">
+      <input id="pw" type="password" placeholder="관리자 비밀번호" />
+      <button class="btn primary">조회</button>
+      <button type="button" id="reset-all" class="btn">전체 오늘 사용량 초기화</button>
+      <span id="msg" class="muted"></span>
+    </form>
+    <div id="stats" class="stats"></div>
+    <div id="table"></div>
+    <p class="muted small">예상 비용은 모델별 공개 단가 기준 추정치입니다. 실제 청구액은 Claude 콘솔의 Usage / Billing 화면에서 확인하세요.</p>
+  </div>
+  <script>
+    // 백만 토큰당 달러 (입력, 출력). 캐시 읽기 = 입력의 0.1배, 캐시 쓰기 = 입력의 1.25배
+    const PRICES = {
+      "claude-opus-5-5": [4, 20],
+      "claude-sonnet-5-5": [2, 10],
+      "claude-haiku-5-5": [0.1, 0.5],
+      "claude-fable-5-1": [10, 50],
+    };
+    const $ = (s) => document.querySelector(s);
+    const pw = () => $("#pw").value;
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    $("#pw").value = sessionStorage.getItem("adminpw") || "";
+
+    async function call(path, opts = {}) {
+      const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", "x-admin-password": pw() } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    }
+
+    function cost(t, model) {
+      const [inp, out] = PRICES[model] || PRICES["claude-opus-5-5"];
+      return (t.input * inp + t.cacheRead * inp * 0.1 + t.cacheWrite * inp * 1.25 + t.output * out) / 1e6;
+    }
+
+    async function load() {
+      try {
+        const data = await call("/api/admin/summary");
+        sessionStorage.setItem("adminpw", pw());
+        $("#msg").textContent = `모델: ${data.model} · 기준일 ${data.date}`;
+        const rows = data.students.sort((a, b) => a.club.localeCompare(b.club) || a.studentNo.localeCompare(b.studentNo));
+        const total = rows.reduce((s, r) => s + cost(r.tokenUsage, data.model), 0);
+        const req = rows.reduce((s, r) => s + r.totalRequests, 0);
+        const today = rows.reduce((s, r) => s + r.today, 0);
+        const shared = rows.reduce((s, r) => s + r.shared, 0);
+        $("#stats").innerHTML = [
+          ["참여 학생", `${rows.length}명`],
+          ["오늘 요청", `${today}회`],
+          ["누적 요청", `${req}회`],
+          ["공유된 작품", `${shared}개`],
+          ["누적 예상 비용", `$${total.toFixed(2)}`],
+        ].map(([k, v]) => `<div class="stat">${k}<b>${v}</b></div>`).join("");
+        $("#table").innerHTML = `<table><thead><tr>
+          <th>동아리</th><th>학번</th><th>이름</th><th>오늘</th><th>누적 요청</th><th>도안</th><th>공유</th><th>예상 비용</th><th></th>
+          </tr></thead><tbody>${rows.map((r) => `<tr>
+            <td>${esc(r.club)}</td><td>${esc(r.studentNo)}</td><td>${esc(r.name)}</td>
+            <td class="num">${r.today}</td><td class="num">${r.totalRequests}</td>
+            <td class="num">${r.designs}</td><td class="num">${r.shared}</td>
+            <td class="num">$${cost(r.tokenUsage, data.model).toFixed(3)}</td>
+            <td><button class="btn small" data-reset="${r.id}">오늘 사용량 초기화</button></td>
+          </tr>`).join("")}</tbody></table>`;
+        document.querySelectorAll("[data-reset]").forEach((b) =>
+          b.addEventListener("click", async () => {
+            await call("/api/admin/reset-usage", { method: "POST", body: JSON.stringify({ studentId: b.dataset.reset }) });
+            load();
+          }),
+        );
+      } catch (err) {
+        $("#msg").textContent = err.message;
+      }
+    }
+
+    $("#f").addEventListener("submit", (e) => (e.preventDefault(), load()));
+    $("#reset-all").addEventListener("click", async () => {
+      if (!confirm("모든 학생의 오늘 사용량을 0으로 초기화할까요?")) return;
+      await call("/api/admin/reset-usage", { method: "POST", body: JSON.stringify({}) }).catch((e) => ($("#msg").textContent = e.message));
+      load();
+    });
+    if (pw()) load();
+  </script>
+</body>
+</html>
