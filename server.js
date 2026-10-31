@@ -36,7 +36,7 @@ const store = process.env.SUPABASE_URL
   : new Store(path.join(here, "data", "db.json"));
 
 const app = express();
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(here, "public")));
 app.use("/vendor/three", express.static(path.join(here, "node_modules", "three")));
 app.use(
@@ -210,8 +210,13 @@ app.get("/api/club/designs", auth, async (req, res) => {
 app.post("/api/designs/:id/chat", auth, async (req, res) => {
   const d = await loadDesignFor(req, res);
   if (!d) return;
-  const text = String(req.body.message || "").trim().slice(0, 4000);
   const kind = req.body.kind === "fix" ? "fix" : "user";
+  const images = kind === "user" ? parseImages(req.body.images) : [];
+  if (Array.isArray(req.body.images) && req.body.images.length && !images.length) {
+    return res.status(400).json({ error: "이미지를 읽을 수 없어요. 다른 사진으로 시도해 보세요." });
+  }
+  let text = String(req.body.message || "").trim().slice(0, 4000);
+  if (!text && images.length) text = "첨부한 이미지를 참고해서 3D 프린트용 도안을 만들어 줘.";
   if (!text) return res.status(400).json({ error: "메시지를 입력해 주세요." });
 
   const student = req.student;
@@ -244,7 +249,16 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
       req.body.currentCode !== d.lastAssistantCode) {
     content = `${text}\n\n(참고: 내가 코드를 직접 수정했어. 지금 코드는 아래와 같아. 이걸 기준으로 고쳐 줘.)\n\`\`\`openscad\n${req.body.currentCode.slice(0, 30_000)}\n\`\`\``;
   }
-  const userMsg = { role: "user", content };
+  // 이미지는 텍스트보다 앞에 두는 것이 권장된다.
+  const userMsg = images.length
+    ? {
+        role: "user",
+        content: [
+          ...images.map((img) => ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } })),
+          { type: "text", text: content },
+        ],
+      }
+    : { role: "user", content };
   const messages = [...d.messages, userMsg];
 
   if (running >= MAX_CONCURRENT) send("status", { message: "다른 친구들의 요청을 처리하는 중이에요. 잠시 기다려 주세요…" });
@@ -291,7 +305,7 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
 
     const chat = [
       ...d.chat,
-      { role: "user", kind, text, at: Date.now() },
+      { role: "user", kind, text, at: Date.now(), ...(images.length ? { images: images.map((img) => img.url) } : {}) },
       { role: "assistant", text: replyText, at: Date.now(), truncated: final.stop_reason === "max_tokens" },
     ];
     const patch = {
@@ -330,6 +344,17 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
     if (!res.writableEnded) res.end();
   }
 });
+
+// 참고 이미지: 브라우저에서 줄여서 보낸 data URL 을 검사한다. (최대 3장, 장당 약 2MB)
+const MAX_IMAGES = 3;
+function parseImages(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, MAX_IMAGES).flatMap((url) => {
+    const m = typeof url === "string" && url.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+    if (!m || m[2].length > 2_800_000) return [];
+    return [{ url, mediaType: m[1], data: m[2] }];
+  });
+}
 
 function extractCode(text) {
   const blocks = [...text.matchAll(/```(?:openscad|scad)?[^\n]*\n([\s\S]*?)```/g)].map((m) => m[1]);

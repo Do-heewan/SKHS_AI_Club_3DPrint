@@ -56,8 +56,14 @@
         <div id="chat-log" class="chat-log"></div>
         <div id="examples" class="examples"></div>
         <form id="chat-form" class="chat-form">
-          <textarea id="chat-input" rows="3" placeholder="만들고 싶은 물건을 자세히 설명해 보세요. (예: 내 이름이 새겨진 5cm 크기 하트 열쇠고리)"></textarea>
-          <button id="send-btn" type="submit" class="btn primary">보내기</button>
+          <div id="attach-list" class="attach-list" hidden></div>
+          <div class="chat-row">
+            <label class="btn attach-btn" title="참고 이미지 첨부 (최대 3장)">
+              🖼️<input id="image-input" type="file" accept="image/*" multiple hidden />
+            </label>
+            <textarea id="chat-input" rows="3" placeholder="만들고 싶은 물건을 자세히 설명해 보세요. 참고할 사진은 🖼️ 버튼, 붙여넣기, 끌어다 놓기로 넣을 수 있어요."></textarea>
+            <button id="send-btn" type="submit" class="btn primary">보내기</button>
+          </div>
         </form>
       </section>
 

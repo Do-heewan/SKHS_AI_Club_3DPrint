@@ -111,7 +111,18 @@ details.thinking div { white-space: pre-wrap; margin-top: 4px; max-height: 180px
 .example { border: 1px solid var(--line); background: #fafbfd; border-radius: 999px; padding: 5px 12px; font-size: 0.82rem; cursor: pointer; }
 .example:hover { border-color: var(--primary); color: var(--primary-dark); }
 
-.chat-form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.chat-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.chat-form.dragover { background: #eef1ff; outline: 2px dashed var(--primary); outline-offset: -4px; }
+.chat-row { display: flex; gap: 8px; }
+.attach-btn { align-self: stretch; display: flex; align-items: center; padding: 0 10px; font-size: 1.1rem; cursor: pointer; }
+.attach-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.attach-item { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.attach-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.attach-item button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: 0; border-radius: 50%; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 20px; padding: 0; cursor: pointer; }
+.msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.msg-images img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; background: #fff; cursor: zoom-in; }
+.msg-images img.zoom { width: 100%; height: auto; max-height: 360px; object-fit: contain; cursor: zoom-out; }
+.detail-prompts .msg-images img { width: 72px; height: 72px; }
 .chat-form textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .chat-form textarea:focus { outline: 2px solid #c9d3ff; border-color: var(--primary); }
 

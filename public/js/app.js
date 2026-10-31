@@ -23,6 +23,7 @@ const state = {
   fixAttempts: 0,
   viewer: null,
   galleryTimer: null,
+  attachments: [], // 보낼 참고 이미지 (data URL)
 };
 
 // ---------- API ----------
@@ -235,16 +236,17 @@ function renderChat() {
     return;
   }
   for (const m of chat) {
-    if (m.role === "user") addUserBubble(m.text, m.kind);
+    if (m.role === "user") addUserBubble(m.text, m.kind, m.images);
     else addAiBubble().setFinal(m.text);
   }
   scrollChat();
 }
 
-function addUserBubble(text, kind) {
+function addUserBubble(text, kind, images = []) {
   const el = document.createElement("div");
   el.className = `msg user${kind === "fix" ? " fix" : ""}`;
-  el.textContent = kind === "fix" ? "🔧 렌더링 오류를 AI에게 자동으로 알려 고치는 중이에요." : text;
+  if (images?.length) el.appendChild(imageStrip(images));
+  el.append(kind === "fix" ? "🔧 렌더링 오류를 AI에게 자동으로 알려 고치는 중이에요." : text);
   $("#chat-log").appendChild(el);
   scrollChat();
 }
@@ -298,10 +300,101 @@ function scrollChat() {
 $("#chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("#chat-input").value.trim();
-  if (!text || state.busy) return;
+  const images = state.attachments;
+  if ((!text && !images.length) || state.busy) return;
   $("#chat-input").value = "";
+  state.attachments = [];
+  renderAttachments();
   state.fixAttempts = 0;
-  sendMessage(text, "user");
+  sendMessage(text || "첨부한 이미지를 참고해서 3D 프린트용 도안을 만들어 줘.", "user", images);
+});
+
+// ---------- 참고 이미지 첨부 ----------
+
+const MAX_IMAGES = 3;
+const MAX_EDGE = 1568; // Claude가 이미지를 가장 효율적으로 보는 긴 변 크기
+
+// 사진을 줄이고 JPEG로 바꿔서 용량을 줄인다. (투명 배경은 흰색으로)
+async function shrinkImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+async function addAttachments(files) {
+  const images = [...files].filter((f) => f.type.startsWith("image/"));
+  if (!images.length) return;
+  const room = MAX_IMAGES - state.attachments.length;
+  if (images.length > room) addSystemNote(`참고 이미지는 한 번에 ${MAX_IMAGES}장까지 넣을 수 있어요.`, "error");
+  for (const file of images.slice(0, Math.max(0, room))) {
+    try {
+      state.attachments.push(await shrinkImage(file));
+    } catch {
+      addSystemNote(`'${file.name}' 이미지를 읽지 못했어요. (HEIC 사진이라면 JPG로 바꿔서 넣어 주세요)`, "error");
+    }
+  }
+  renderAttachments();
+}
+
+function renderAttachments() {
+  const list = $("#attach-list");
+  list.hidden = !state.attachments.length;
+  list.innerHTML = state.attachments
+    .map((url, i) => `<div class="attach-item"><img src="${url}" alt="" /><button type="button" data-i="${i}" title="빼기">✕</button></div>`)
+    .join("");
+  list.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.attachments.splice(Number(b.dataset.i), 1);
+      renderAttachments();
+    }),
+  );
+}
+
+function imageStrip(images) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg-images";
+  for (const url of images) {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = "참고 이미지";
+    img.addEventListener("click", () => img.classList.toggle("zoom"));
+    wrap.appendChild(img);
+  }
+  return wrap;
+}
+
+$("#image-input").addEventListener("change", async (e) => {
+  await addAttachments(e.target.files);
+  e.target.value = "";
+});
+
+$("#chat-input").addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.some((f) => f.type.startsWith("image/"))) {
+    e.preventDefault();
+    addAttachments(files);
+  }
+});
+
+const chatForm = $("#chat-form");
+chatForm.addEventListener("dragover", (e) => {
+  if (![...e.dataTransfer.types].includes("Files")) return;
+  e.preventDefault();
+  chatForm.classList.add("dragover");
+});
+chatForm.addEventListener("dragleave", () => chatForm.classList.remove("dragover"));
+chatForm.addEventListener("drop", (e) => {
+  e.preventDefault();
+  chatForm.classList.remove("dragover");
+  addAttachments(e.dataTransfer.files);
 });
 
 $("#chat-input").addEventListener("keydown", (e) => {
@@ -319,10 +412,10 @@ function setBusy(busy) {
   $("#send-btn").textContent = busy ? "생성 중…" : "보내기";
 }
 
-async function sendMessage(text, kind) {
+async function sendMessage(text, kind, images = []) {
   if (!state.design.chat.length) $("#chat-log").innerHTML = "";
   $("#examples").hidden = true;
-  addUserBubble(text, kind);
+  addUserBubble(text, kind, images);
   const bubble = addAiBubble();
   bubble.status("요청을 보내는 중…");
   setBusy(true);
@@ -334,7 +427,7 @@ async function sendMessage(text, kind) {
     const res = await fetch(`/api/designs/${designId}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}` },
-      body: JSON.stringify({ message: text, kind, currentCode: editorCode }),
+      body: JSON.stringify({ message: text, kind, currentCode: editorCode, images }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -352,12 +445,17 @@ async function sendMessage(text, kind) {
   } catch (err) {
     bubble.remove();
     addSystemNote(err.message, "error");
+    // 실패하면 첨부했던 이미지를 다시 넣어 두어 바로 재시도할 수 있게 한다.
+    if (images.length && !state.attachments.length) {
+      state.attachments = images;
+      renderAttachments();
+    }
     setBusy(false);
     return;
   }
 
   bubble.setFinal(done.text);
-  state.design.chat.push({ role: "user", kind, text }, { role: "assistant", text: done.text });
+  state.design.chat.push({ role: "user", kind, text, images }, { role: "assistant", text: done.text });
   updateUsage(done.usedToday);
   if (done.title !== state.design.title) {
     state.design.title = done.title;
@@ -539,9 +637,13 @@ async function openDetail(id) {
   $("#detail-title").textContent = design.title;
   $("#detail-owner").textContent = `${design.owner.name} (${design.owner.studentNo}) · ${timeAgo(design.updatedAt)}`;
   const prompts = design.chat.filter((m) => m.role === "user" && m.kind !== "fix");
-  $("#detail-prompts").innerHTML = prompts.length
-    ? prompts.map((m) => `<li>${escapeHtml(m.text)}</li>`).join("")
-    : `<li class="muted">코드를 직접 작성했어요.</li>`;
+  $("#detail-prompts").innerHTML = prompts.length ? "" : `<li class="muted">코드를 직접 작성했어요.</li>`;
+  for (const m of prompts) {
+    const li = document.createElement("li");
+    if (m.images?.length) li.appendChild(imageStrip(m.images));
+    li.append(m.text);
+    $("#detail-prompts").appendChild(li);
+  }
 
   if (!design.code) {
     status.className = "viewer-overlay";
