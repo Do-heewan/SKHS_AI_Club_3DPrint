@@ -17,6 +17,18 @@
     th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
     th { background: #f7f8fb; }
     td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    h2 { margin: 12px 0 0; font-size: 1.15rem; }
+    .ranking { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+    .club-rank { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+    .club-rank h3 { margin: 0 0 10px; font-size: 1rem; }
+    .rank-item { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+    .rank-item:first-of-type { border-top: 0; }
+    .rank-item img, .rank-item .ph { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; background: #eef1f6; flex: none; }
+    .rank-item .no { width: 28px; text-align: center; font-weight: 700; }
+    .rank-item .t { flex: 1; min-width: 0; }
+    .rank-item .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-item .likes { color: #d6336c; font-weight: 700; white-space: nowrap; }
+    .rank-item.first { background: #fff8e1; border-radius: 8px; padding: 6px; }
   </style>
 </head>
 <body>
@@ -30,6 +42,8 @@
     </form>
     <div id="stats" class="stats"></div>
     <div id="table"></div>
+    <h2>동아리별 좋아요 순위 <span class="muted small">(대표 작품 선정용 · 공유된 작품만)</span></h2>
+    <div id="ranking" class="ranking"></div>
     <p class="muted small">예상 비용은 모델별 공개 단가 기준 추정치입니다. 실제 청구액은 Claude 콘솔의 Usage / Billing 화면에서 확인하세요.</p>
   </div>
   <script>
@@ -83,6 +97,7 @@
             <td class="num">$${cost(r.tokenUsage, data.model).toFixed(3)}</td>
             <td><button class="btn small" data-reset="${r.id}">오늘 사용량 초기화</button></td>
           </tr>`).join("")}</tbody></table>`;
+        loadRanking();
         document.querySelectorAll("[data-reset]").forEach((b) =>
           b.addEventListener("click", async () => {
             await call("/api/admin/reset-usage", { method: "POST", body: JSON.stringify({ studentId: b.dataset.reset }) });
@@ -92,6 +107,24 @@
       } catch (err) {
         $("#msg").textContent = err.message;
       }
+    }
+
+    async function loadRanking() {
+      const { clubs } = await call("/api/admin/ranking");
+      $("#ranking").innerHTML = clubs.map(({ club, designs, total }) => {
+        const top = designs[0]?.likes || 0;
+        const items = designs.map((d, i) => {
+          const first = top > 0 && d.likes === top;
+          return `<div class="rank-item${first ? " first" : ""}">
+            <span class="no">${first ? "👑" : i + 1}</span>
+            ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" />` : `<span class="ph"></span>`}
+            <span class="t"><b>${esc(d.title)}</b><span class="muted small">${esc(d.owner?.name || "")} (${esc(d.owner?.studentNo || "")})</span></span>
+            <span class="likes">♥ ${d.likes}</span>
+          </div>`;
+        }).join("");
+        return `<div class="club-rank"><h3>${esc(club)} <span class="muted small">공유 작품 ${total}개</span></h3>
+          ${items || '<p class="muted small">아직 공유된 작품이 없어요.</p>'}</div>`;
+      }).join("");
     }
 
     $("#f").addEventListener("submit", (e) => (e.preventDefault(), load()));

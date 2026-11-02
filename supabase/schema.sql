@@ -87,3 +87,15 @@ revoke execute on function public.increment_usage(uuid, date, integer) from publ
 revoke execute on function public.add_token_usage(uuid, bigint, bigint, bigint, bigint) from public, anon, authenticated;
 grant execute on function public.increment_usage(uuid, date, integer) to service_role;
 grant execute on function public.add_token_usage(uuid, bigint, bigint, bigint, bigint) to service_role;
+
+-- 좋아요 (같은 동아리 학생이 공유된 작품에 누름. 한 사람이 한 작품에 한 번)
+create table if not exists public.likes (
+  design_id   uuid not null references public.designs(id) on delete cascade,
+  student_id  uuid not null references public.students(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (design_id, student_id)
+);
+create index if not exists likes_student_idx on public.likes(student_id);
+
+alter table public.likes enable row level security;
+revoke all on public.likes from anon, authenticated;

@@ -66,8 +66,10 @@ function usedToday(s) {
   return s.usage?.date === today() ? s.usage.count : 0;
 }
 
-function designSummary(d) {
+// viewer 를 넘기면 좋아요 수와 내가 눌렀는지를 함께 담는다. (누가 눌렀는지는 보내지 않음)
+function designSummary(d, viewer) {
   return {
+    ...(d.likedBy && { likes: d.likedBy.length, liked: Boolean(viewer && d.likedBy.includes(viewer.id)) }),
     id: d.id,
     title: d.title,
     shared: d.shared,
@@ -166,9 +168,10 @@ app.get("/api/designs/:id", auth, async (req, res) => {
   const d = await loadDesignFor(req, res, { allowClub: true });
   if (!d) return;
   const owner = await store.getStudent(d.ownerId);
+  const likedBy = await store.likedBy(d.id);
   res.json({
     design: {
-      ...designSummary(d),
+      ...designSummary({ ...d, likedBy }, req.student),
       owner: { name: owner.name, studentNo: owner.studentNo },
       code: d.code,
       chat: d.chat,
@@ -201,8 +204,18 @@ app.delete("/api/designs/:id", auth, async (req, res) => {
 // ---------- 동아리 갤러리 ----------
 
 app.get("/api/club/designs", auth, async (req, res) => {
-  const list = (await store.sharedDesignsInClub(req.student.club)).map((d) => designSummary(d));
+  const list = (await store.sharedDesignsInClub(req.student.club)).map((d) => designSummary(d, req.student));
   res.json({ club: req.student.club, designs: list });
+});
+
+// 좋아요 누르기/취소. 같은 동아리에 공유된 남의 작품에만 누를 수 있다.
+app.post("/api/designs/:id/like", auth, async (req, res) => {
+  const d = await loadDesignFor(req, res, { allowClub: true });
+  if (!d) return;
+  if (d.ownerId === req.student.id) return res.status(400).json({ error: "내 작품에는 좋아요를 누를 수 없어요." });
+  if (!d.shared) return res.status(400).json({ error: "공유가 취소된 작품이에요." });
+  const likedBy = await store.setLike(d.id, req.student.id, req.body.liked !== false);
+  res.json({ likes: likedBy.length, liked: likedBy.includes(req.student.id) });
 });
 
 // ---------- Claude 대화 (SSE 스트리밍) ----------
@@ -373,6 +386,26 @@ function adminOnly(req, res, next) {
 
 app.get("/api/admin/summary", adminOnly, async (req, res) => {
   res.json(await store.adminSummary(today(), { model: MODEL }));
+});
+
+// 동아리별 좋아요 순위 (대표 작품 선정용)
+app.get("/api/admin/ranking", adminOnly, async (req, res) => {
+  const designs = await store.allSharedDesigns();
+  const clubs = CLUBS.map((club) => {
+    const list = designs
+      .filter((d) => d.club === club)
+      .map((d) => ({
+        id: d.id,
+        title: d.title,
+        thumbnail: d.thumbnail || null,
+        owner: d.owner,
+        likes: d.likedBy.length,
+        updatedAt: d.updatedAt,
+      }))
+      .sort((a, b) => b.likes - a.likes || a.updatedAt - b.updatedAt);
+    return { club, designs: list.slice(0, 10), total: list.length };
+  });
+  res.json({ clubs });
 });
 
 app.post("/api/admin/reset-usage", adminOnly, async (req, res) => {

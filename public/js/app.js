@@ -24,6 +24,8 @@ const state = {
   viewer: null,
   galleryTimer: null,
   attachments: [], // 보낼 참고 이미지 (data URL)
+  gallery: [], // 동아리 갤러리 작품 목록
+  gallerySort: "likes",
 };
 
 // ---------- API ----------
@@ -597,33 +599,119 @@ async function loadGallery() {
   try {
     const { club, designs } = await api("/api/club/designs");
     $("#gallery-title").textContent = `${club} 갤러리`;
-    const grid = $("#gallery-grid");
-    if (!designs.length) {
-      grid.innerHTML = `<div class="gallery-empty">아직 공유된 작품이 없어요. 작업실에서 '동아리에 공유'를 켜 보세요!</div>`;
-      return;
-    }
-    grid.innerHTML = designs
-      .map(
-        (d) => `<button class="card${d.owner?.studentNo === state.me.studentNo ? " mine" : ""}" data-id="${d.id}">
-          ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" loading="lazy" />` : `<div class="no-thumb">미리보기 없음</div>`}
-          <div class="card-body"><strong>${escapeHtml(d.title)}</strong>
-          <span>${escapeHtml(d.owner?.name || "")} · ${timeAgo(d.updatedAt)}</span></div>
-        </button>`,
-      )
-      .join("");
-    grid.querySelectorAll(".card").forEach((c) => c.addEventListener("click", () => openDetail(c.dataset.id)));
+    state.gallery = designs;
+    renderGallery();
   } catch (err) {
     $("#gallery-grid").innerHTML = `<div class="gallery-empty">${escapeHtml(err.message)}</div>`;
   }
 }
 
+const isMine = (d) => d.owner?.studentNo === state.me.studentNo;
+const topLikes = () => Math.max(0, ...state.gallery.map((d) => d.likes || 0));
+
+function likeLabel(d) {
+  return `${d.liked ? "♥" : "♡"} ${d.likes || 0}`;
+}
+
+function renderGallery() {
+  const grid = $("#gallery-grid");
+  const designs = [...state.gallery];
+  const top = topLikes();
+  renderLeader(top);
+  if (!designs.length) {
+    grid.innerHTML = `<div class="gallery-empty">아직 공유된 작품이 없어요. 작업실에서 '동아리에 공유'를 켜 보세요!</div>`;
+    return;
+  }
+  if (state.gallerySort === "likes") designs.sort((a, b) => (b.likes || 0) - (a.likes || 0) || b.updatedAt - a.updatedAt);
+  grid.innerHTML = designs
+    .map((d) => {
+      const isTop = top > 0 && d.likes === top;
+      return `<div class="card${isMine(d) ? " mine" : ""}${isTop ? " top" : ""}" data-id="${d.id}" role="button" tabindex="0">
+          <div class="thumb-wrap">
+            ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" loading="lazy" />` : `<div class="no-thumb">미리보기 없음</div>`}
+            ${isTop ? `<span class="crown">👑 1위</span>` : ""}
+          </div>
+          <div class="card-body">
+            <div class="card-text"><strong>${escapeHtml(d.title)}</strong>
+            <span>${escapeHtml(d.owner?.name || "")} · ${timeAgo(d.updatedAt)}</span></div>
+            <button type="button" class="like-btn${d.liked ? " on" : ""}" data-like="${d.id}"
+              ${isMine(d) ? 'disabled title="내 작품에는 좋아요를 누를 수 없어요"' : 'title="좋아요"'}>${likeLabel(d)}</button>
+          </div>
+        </div>`;
+    })
+    .join("");
+  grid.querySelectorAll(".card").forEach((c) => {
+    c.addEventListener("click", () => openDetail(c.dataset.id));
+    c.addEventListener("keydown", (e) => e.key === "Enter" && openDetail(c.dataset.id));
+  });
+  grid.querySelectorAll("[data-like]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleLike(b.dataset.like);
+    }),
+  );
+}
+
+function renderLeader(top) {
+  const el = $("#gallery-leader");
+  const leaders = state.gallery.filter((d) => top > 0 && d.likes === top);
+  el.hidden = !leaders.length;
+  if (!leaders.length) return;
+  const names = leaders.map((d) => `<b>${escapeHtml(d.title)}</b> (${escapeHtml(d.owner?.name || "")})`).join(", ");
+  el.innerHTML = `👑 현재 ${leaders.length > 1 ? "공동 " : ""}1위: ${names} · ♥ ${top}`;
+}
+
+document.querySelectorAll("[data-sort]").forEach((b) =>
+  b.addEventListener("click", () => {
+    state.gallerySort = b.dataset.sort;
+    document.querySelectorAll("[data-sort]").forEach((x) => x.classList.toggle("active", x === b));
+    renderGallery();
+  }),
+);
+
+const likeBusy = new Set();
+
+async function toggleLike(id) {
+  const d = state.gallery.find((x) => x.id === id) || (detailDesign?.id === id ? detailDesign : null);
+  if (!d || isMine(d) || likeBusy.has(id)) return;
+  likeBusy.add(id);
+  const want = !d.liked;
+  try {
+    const result = await api(`/api/designs/${id}/like`, { method: "POST", body: { liked: want } });
+    for (const x of [state.gallery.find((g) => g.id === id), detailDesign?.id === id ? detailDesign : null]) {
+      if (x) Object.assign(x, result);
+    }
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    likeBusy.delete(id);
+  }
+  renderGallery();
+  renderDetailLike();
+}
+
 let detailViewer = null;
 let detailStl = null;
+let detailDesign = null;
+
+function renderDetailLike() {
+  const b = $("#detail-like");
+  const d = detailDesign;
+  b.hidden = !d || !d.shared;
+  if (b.hidden) return;
+  b.textContent = likeLabel(d);
+  b.classList.toggle("on", Boolean(d.liked));
+  b.disabled = d.mine;
+  b.title = d.mine ? "내 작품에는 좋아요를 누를 수 없어요" : "좋아요";
+}
+$("#detail-like").addEventListener("click", () => detailDesign && toggleLike(detailDesign.id));
 
 async function openDetail(id) {
   const dialog = $("#detail-dialog");
   dialog.showModal();
   detailStl = null;
+  detailDesign = null;
+  renderDetailLike();
   $("#detail-download").disabled = true;
   $("#detail-size").hidden = true;
   const status = $("#detail-status");
@@ -634,6 +722,8 @@ async function openDetail(id) {
   detailViewer.clear();
 
   const { design } = await api(`/api/designs/${id}`);
+  detailDesign = design;
+  renderDetailLike();
   $("#detail-title").textContent = design.title;
   $("#detail-owner").textContent = `${design.owner.name} (${design.owner.studentNo}) · ${timeAgo(design.updatedAt)}`;
   const prompts = design.chat.filter((m) => m.role === "user" && m.kind !== "fix");

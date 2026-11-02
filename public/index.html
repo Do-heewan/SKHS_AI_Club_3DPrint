@@ -102,7 +102,14 @@
     <main id="gallery" class="gallery" hidden>
       <div class="gallery-head">
         <h2 id="gallery-title">동아리 갤러리</h2>
-        <p class="muted">'동아리에 공유'를 켠 작품이 여기에 보여요. 친구가 어떤 프롬프트로 만들었는지도 볼 수 있어요.</p>
+        <p class="muted">'동아리에 공유'를 켠 작품이 여기에 보여요. 마음에 드는 작품에 ♡를 눌러 주세요. 좋아요를 가장 많이 받은 작품이 동아리 대표 작품 후보가 돼요!</p>
+        <div class="gallery-tools">
+          <div id="gallery-leader" class="gallery-leader" hidden></div>
+          <div class="sort-toggle">
+            <button class="btn small active" data-sort="likes">인기순</button>
+            <button class="btn small" data-sort="recent">최신순</button>
+          </div>
+        </div>
       </div>
       <div id="gallery-grid" class="gallery-grid"></div>
     </main>
@@ -127,6 +134,7 @@
         <h4>사용한 프롬프트</h4>
         <ol id="detail-prompts" class="detail-prompts"></ol>
         <div class="detail-actions">
+          <button id="detail-like" class="like-btn" hidden></button>
           <button id="detail-download" class="btn primary small" disabled>STL 다운로드</button>
         </div>
       </div>
