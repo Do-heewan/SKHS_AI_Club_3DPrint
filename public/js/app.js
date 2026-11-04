@@ -137,12 +137,14 @@ async function loadDesigns(selectId) {
     state.designs = [design];
   }
   renderDesignSelect();
-  await openDesign(selectId || state.design?.id || state.designs[0].id);
+  // 따로 고르지 않았으면 가장 최근의 AI 도안을 연다. (직접 올린 STL 도안은 대화를 할 수 없으므로)
+  const first = state.designs.find((d) => d.source !== "upload") || state.designs[0];
+  await openDesign(selectId || state.design?.id || first.id);
 }
 
 function renderDesignSelect() {
   $("#design-select").innerHTML = state.designs
-    .map((d) => `<option value="${d.id}">${escapeHtml(d.title)}${d.shared ? " 🌐" : ""}</option>`)
+    .map((d) => `<option value="${d.id}">${d.source === "upload" ? "🧩 " : ""}${escapeHtml(d.title)}${d.shared ? " 🌐" : ""}</option>`)
     .join("");
   if (state.design) $("#design-select").value = state.design.id;
 }
@@ -173,19 +175,63 @@ async function openDesign(id) {
   state.design = design;
   state.stl = null;
   state.fixAttempts = 0;
+  const uploaded = design.source === "upload";
   $("#design-select").value = id;
   $("#title-input").value = design.title;
   $("#share-toggle").checked = design.shared;
   $("#code-editor").value = design.code || "";
+  $("#code-toggle-btn").hidden = uploaded;
+  if (uploaded) $("#code-panel").hidden = true;
+  setChatEnabled(!uploaded);
   $("#download-btn").disabled = true;
   $("#size-info").hidden = true;
   setStatus("");
   state.viewer.clear();
   renderChat();
-  if (design.code) {
+  if (uploaded) {
+    await showUploadedStl(design);
+  } else if (design.code) {
     await buildModel(design.code, { autoFix: false, saveThumb: !design.thumbnail });
   } else {
     showOverlay("왼쪽에 만들고 싶은 물건을 설명하면<br />여기에 3D 모델이 나타나요.");
+  }
+}
+
+const CHAT_PLACEHOLDER = $("#chat-input").placeholder;
+
+// 직접 올린 STL 도안에서는 AI 대화를 막는다.
+function setChatEnabled(on) {
+  $("#chat-form").classList.toggle("disabled", !on);
+  $("#chat-input").disabled = !on;
+  $("#send-btn").disabled = !on || state.busy;
+  $("#chat-input").placeholder = on ? CHAT_PLACEHOLDER : "직접 올린 STL 도안은 AI와 대화할 수 없어요. '＋ 새 도안'을 눌러 주세요.";
+  if (!on && state.attachments.length) {
+    state.attachments = [];
+    renderAttachments();
+  }
+}
+
+// 직접 올린 STL 파일 받기. 서버가 gzip 으로 보내면 브라우저가 알아서 압축을 푼다.
+async function fetchStl(id) {
+  const res = await fetch(`/api/designs/${id}/stl`, { headers: { Authorization: `Bearer ${state.token}` } });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `오류 (${res.status})`);
+  return res.arrayBuffer();
+}
+
+async function showUploadedStl(design) {
+  showOverlay("STL 파일을 불러오는 중…", true);
+  try {
+    const stl = await fetchStl(design.id);
+    if (state.design?.id !== design.id) return; // 그새 다른 도안으로 바꿈
+    state.stl = stl;
+    showOverlay("");
+    showSizeInfo($("#size-info"), state.viewer.showStl(stl));
+    setStatus("직접 올린 STL 파일", "ok");
+    $("#download-btn").disabled = false;
+  } catch (err) {
+    if (state.design?.id !== design.id) return;
+    showOverlay("STL 파일을 불러오지 못했어요 😥");
+    setStatus(err.message, "bad");
   }
 }
 
@@ -228,6 +274,15 @@ function renderExamples() {
 function renderChat() {
   const log = $("#chat-log");
   log.innerHTML = "";
+  if (state.design.source === "upload") {
+    $("#examples").hidden = true;
+    log.innerHTML = `<div class="empty-chat">
+      <h3>🧩 직접 올린 STL 파일</h3>
+      <p>Tinkercad 같은 다른 프로그램으로 만든 작품이라 AI와 대화해서 고칠 수는 없어요.<br/>
+      제목 바꾸기, 동아리 공유 켜고 끄기, STL 다운로드, 삭제는 할 수 있어요.</p>
+      ${state.design.note ? `<p class="upload-note">${escapeHtml(state.design.note)}</p>` : ""}</div>`;
+    return;
+  }
   const chat = state.design.chat || [];
   $("#examples").hidden = chat.length > 0;
   if (!chat.length) {
@@ -303,7 +358,7 @@ $("#chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("#chat-input").value.trim();
   const images = state.attachments;
-  if ((!text && !images.length) || state.busy) return;
+  if ((!text && !images.length) || state.busy || state.design?.source === "upload") return;
   $("#chat-input").value = "";
   state.attachments = [];
   renderAttachments();
@@ -408,7 +463,7 @@ $("#chat-input").addEventListener("keydown", (e) => {
 
 function setBusy(busy) {
   state.busy = busy;
-  $("#send-btn").disabled = busy;
+  $("#send-btn").disabled = busy || state.design?.source === "upload";
   $("#rerender-btn").disabled = busy;
   $("#new-design-btn").disabled = busy;
   $("#send-btn").textContent = busy ? "생성 중…" : "보내기";
@@ -630,6 +685,7 @@ function renderGallery() {
           <div class="thumb-wrap">
             ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" loading="lazy" />` : `<div class="no-thumb">미리보기 없음</div>`}
             ${isTop ? `<span class="crown">👑 1위</span>` : ""}
+            ${d.source === "upload" ? `<span class="src-badge">🧩 STL</span>` : ""}
           </div>
           <div class="card-body">
             <div class="card-text"><strong>${escapeHtml(d.title)}</strong>
@@ -706,9 +762,12 @@ function renderDetailLike() {
 }
 $("#detail-like").addEventListener("click", () => detailDesign && toggleLike(detailDesign.id));
 
+let detailSeq = 0; // 상세 창을 연 순서 (늦게 도착한 이전 결과를 버리기 위해)
+
 async function openDetail(id) {
+  const seq = ++detailSeq;
   const dialog = $("#detail-dialog");
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
   detailStl = null;
   detailDesign = null;
   renderDetailLike();
@@ -721,36 +780,64 @@ async function openDetail(id) {
   if (!detailViewer) detailViewer = new Viewer($("#detail-viewer"));
   detailViewer.clear();
 
-  const { design } = await api(`/api/designs/${id}`);
+  let design;
+  try {
+    ({ design } = await api(`/api/designs/${id}`));
+  } catch (err) {
+    if (seq !== detailSeq) return;
+    status.className = "viewer-overlay";
+    status.innerHTML = `<p>${escapeHtml(err.message)}</p>`;
+    return;
+  }
+  if (seq !== detailSeq) return;
   detailDesign = design;
   renderDetailLike();
+  const uploaded = design.source === "upload";
   $("#detail-title").textContent = design.title;
-  $("#detail-owner").textContent = `${design.owner.name} (${design.owner.studentNo}) · ${timeAgo(design.updatedAt)}`;
-  const prompts = design.chat.filter((m) => m.role === "user" && m.kind !== "fix");
-  $("#detail-prompts").innerHTML = prompts.length ? "" : `<li class="muted">코드를 직접 작성했어요.</li>`;
-  for (const m of prompts) {
+  $("#detail-owner").textContent =
+    `${design.owner.name} (${design.owner.studentNo}) · ${timeAgo(design.updatedAt)}${uploaded ? " · 🧩 직접 올린 STL" : ""}`;
+  $("#detail-prompts-title").textContent = uploaded ? "작품 소개" : "사용한 프롬프트";
+  const list = $("#detail-prompts");
+  list.classList.toggle("plain", uploaded);
+  list.innerHTML = "";
+  if (uploaded) {
     const li = document.createElement("li");
-    if (m.images?.length) li.appendChild(imageStrip(m.images));
-    li.append(m.text);
-    $("#detail-prompts").appendChild(li);
+    li.textContent = design.note || "소개 글이 없어요.";
+    li.classList.toggle("muted", !design.note);
+    list.appendChild(li);
+  } else {
+    const prompts = design.chat.filter((m) => m.role === "user" && m.kind !== "fix");
+    if (!prompts.length) list.innerHTML = `<li class="muted">코드를 직접 작성했어요.</li>`;
+    for (const m of prompts) {
+      const li = document.createElement("li");
+      if (m.images?.length) li.appendChild(imageStrip(m.images));
+      li.append(m.text);
+      list.appendChild(li);
+    }
   }
 
-  if (!design.code) {
+  let stl = null;
+  if (uploaded) {
+    status.innerHTML = "<p>STL 파일을 불러오는 중…</p>";
+    stl = await fetchStl(design.id).catch(() => null);
+  } else if (design.code) {
+    status.innerHTML = "<p>3D 모델을 만드는 중…</p>";
+    const result = await renderScad(design.code);
+    stl = result.ok ? result.stl : null;
+  } else {
     status.className = "viewer-overlay";
     status.innerHTML = "<p>아직 모델이 없어요.</p>";
     return;
   }
-  status.innerHTML = "<p>3D 모델을 만드는 중…</p>";
-  const result = await renderScad(design.code);
-  if (!dialog.open) return;
-  if (!result.ok) {
+  if (seq !== detailSeq || !dialog.open) return;
+  if (!stl) {
     status.className = "viewer-overlay";
     status.innerHTML = "<p>모델을 불러오지 못했어요.</p>";
     return;
   }
   status.hidden = true;
-  detailStl = { stl: result.stl, name: `${design.owner.studentNo}_${design.owner.name}_${design.title}` };
-  showSizeInfo($("#detail-size"), detailViewer.showStl(result.stl, { color: 0xf08a5d }));
+  detailStl = { stl, name: `${design.owner.studentNo}_${design.owner.name}_${design.title}` };
+  showSizeInfo($("#detail-size"), detailViewer.showStl(stl, { color: 0xf08a5d }));
   $("#detail-download").disabled = false;
 }
 
@@ -759,6 +846,123 @@ $("#detail-dialog").addEventListener("click", (e) => {
   if (e.target === e.currentTarget) e.currentTarget.close();
 });
 $("#detail-download").addEventListener("click", () => detailStl && downloadStl(detailStl.stl, detailStl.name));
+
+// ---------- STL 직접 올리기 (Tinkercad 등) ----------
+
+const MAX_STL_BYTES = 50 * 1024 * 1024; // 서버(lib/stl.js)와 같은 제한
+const MAX_STL_GZ_BYTES = 8 * 1024 * 1024;
+const UPLOAD_HINT = "STL 파일을 고르면<br />여기에 미리보기가 나와요.";
+let uploadViewer = null;
+let uploadStl = null; // 고른 STL 파일 내용 (ArrayBuffer)
+let uploadPick = 0;
+
+function setUploadOverlay(html, busy = false) {
+  const o = $("#upload-status");
+  o.hidden = !html;
+  o.classList.toggle("busy", busy);
+  o.innerHTML = html ? `<p>${html}</p>` : "";
+}
+
+function setUploadError(text) {
+  $("#upload-error").textContent = text;
+  $("#upload-error").hidden = !text;
+}
+
+function rejectStl(message) {
+  setUploadOverlay("😥 이 파일은 올릴 수 없어요");
+  setUploadError(message);
+}
+
+$("#upload-open").addEventListener("click", () => {
+  $("#upload-form").reset();
+  uploadStl = null;
+  uploadPick++;
+  setUploadError("");
+  setUploadOverlay(UPLOAD_HINT);
+  $("#upload-size").hidden = true;
+  $("#upload-dialog").showModal();
+  if (!uploadViewer) uploadViewer = new Viewer($("#upload-viewer"));
+  uploadViewer.clear();
+});
+
+$("#upload-close").addEventListener("click", () => $("#upload-dialog").close());
+
+// 파일을 고르면 바로 미리보기를 보여 주고, 읽을 수 없는 파일은 여기서 걸러 낸다.
+$("#upload-file").addEventListener("change", async (e) => {
+  const pick = ++uploadPick;
+  const file = e.target.files[0];
+  uploadStl = null;
+  setUploadError("");
+  $("#upload-size").hidden = true;
+  uploadViewer.clear();
+  if (!file) return setUploadOverlay(UPLOAD_HINT);
+  if (!/\.stl$/i.test(file.name)) return rejectStl("STL 파일(.stl)만 올릴 수 있어요.");
+  if (file.size > MAX_STL_BYTES) return rejectStl("파일이 너무 커요. (최대 50MB) Tinkercad에서 모양을 조금 단순하게 해 보세요.");
+  setUploadOverlay("미리보기를 만드는 중…", true);
+  const buf = await file.arrayBuffer();
+  if (pick !== uploadPick) return; // 그새 다른 파일을 고름
+  let info = null;
+  try {
+    info = uploadViewer.showStl(buf, { color: 0xf08a5d });
+  } catch {}
+  if (!info || !(info.triangles > 0) || !Number.isFinite(info.x)) {
+    uploadViewer.clear();
+    return rejectStl("STL 파일을 읽을 수 없어요. 다른 파일로 시도해 보세요.");
+  }
+  uploadStl = buf;
+  setUploadOverlay("");
+  showSizeInfo($("#upload-size"), info);
+  const title = $("#upload-form").elements.title;
+  if (!title.value.trim()) title.value = file.name.replace(/\.stl$/i, "").slice(0, 40);
+});
+
+$("#upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!uploadStl) return setUploadError("먼저 STL 파일을 골라 주세요.");
+  const form = e.target;
+  const btn = $("#upload-submit");
+  btn.disabled = true;
+  btn.textContent = "올리는 중…";
+  setUploadError("");
+  try {
+    const gz = await gzip(uploadStl);
+    if (gz.size > MAX_STL_GZ_BYTES) throw new Error("파일이 너무 커요. Tinkercad에서 모양을 조금 단순하게 해서 다시 내보내 주세요.");
+    const { design } = await api("/api/designs/upload", {
+      method: "POST",
+      body: {
+        title: form.elements.title.value,
+        note: form.elements.note.value,
+        stl: await blobToBase64(gz),
+        thumbnail: uploadViewer.snapshot(), // 학생이 돌려 본 방향 그대로 미리보기 이미지가 된다
+      },
+    });
+    state.designs.unshift(design);
+    renderDesignSelect();
+    $("#upload-dialog").close();
+    loadGallery();
+    openDetail(design.id); // 올라간 작품을 바로 보여 준다
+  } catch (err) {
+    setUploadError(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "갤러리에 올리기";
+  }
+});
+
+// STL은 압축이 잘 되므로 브라우저에서 gzip 으로 줄여서 보낸다.
+async function gzip(buf) {
+  if (!window.CompressionStream) throw new Error("이 브라우저에서는 올릴 수 없어요. 최신 Chrome이나 Edge를 사용해 주세요.");
+  return new Response(new Blob([buf]).stream().pipeThrough(new CompressionStream("gzip"))).blob();
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.onerror = () => reject(new Error("파일을 읽지 못했어요."));
+    reader.readAsDataURL(blob);
+  });
+}
 
 // ---------- 유틸 ----------
 

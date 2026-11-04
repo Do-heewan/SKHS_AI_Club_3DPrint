@@ -101,8 +101,12 @@
     <!-- 갤러리 -->
     <main id="gallery" class="gallery" hidden>
       <div class="gallery-head">
-        <h2 id="gallery-title">동아리 갤러리</h2>
-        <p class="muted">'동아리에 공유'를 켠 작품이 여기에 보여요. 마음에 드는 작품에 ♡를 눌러 주세요. 좋아요를 가장 많이 받은 작품이 동아리 대표 작품 후보가 돼요!</p>
+        <div class="gallery-title-row">
+          <h2 id="gallery-title">동아리 갤러리</h2>
+          <button id="upload-open" class="btn primary small">🧩 STL 파일 올리기</button>
+        </div>
+        <p class="muted">'동아리에 공유'를 켠 작품이 여기에 보여요. 마음에 드는 작품에 ♡를 눌러 주세요. 좋아요를 가장 많이 받은 작품이 동아리 대표 작품 후보가 돼요!<br />
+          Tinkercad 같은 다른 프로그램으로 만든 작품은 'STL 파일 올리기'로 바로 올릴 수 있어요.</p>
         <div class="gallery-tools">
           <div id="gallery-leader" class="gallery-leader" hidden></div>
           <div class="sort-toggle">
@@ -131,13 +135,43 @@
           </div>
           <button id="detail-close" class="btn ghost small">닫기 ✕</button>
         </div>
-        <h4>사용한 프롬프트</h4>
+        <h4 id="detail-prompts-title">사용한 프롬프트</h4>
         <ol id="detail-prompts" class="detail-prompts"></ol>
         <div class="detail-actions">
           <button id="detail-like" class="like-btn" hidden></button>
           <button id="detail-download" class="btn primary small" disabled>STL 다운로드</button>
         </div>
       </div>
+    </div>
+  </dialog>
+
+  <!-- STL 직접 올리기 (Tinkercad 등) -->
+  <dialog id="upload-dialog" class="detail-dialog">
+    <div class="detail">
+      <div class="detail-view">
+        <div id="upload-viewer" class="viewer"></div>
+        <div id="upload-status" class="viewer-overlay"><p>STL 파일을 고르면<br />여기에 미리보기가 나와요.</p></div>
+        <div id="upload-size" class="size-info" hidden></div>
+      </div>
+      <form id="upload-form" class="detail-side upload-form">
+        <div class="detail-top">
+          <div>
+            <h3>STL 파일 올리기</h3>
+            <p class="muted small">Tinkercad 등 다른 프로그램으로 만든 작품을 동아리 갤러리에 올려요.</p>
+          </div>
+          <button type="button" id="upload-close" class="btn ghost small">닫기 ✕</button>
+        </div>
+        <label>STL 파일
+          <input id="upload-file" type="file" accept=".stl,model/stl,application/sla" required />
+          <span class="muted small">Tinkercad에서는 '내보내기(Export)' → '.STL'로 받은 파일이에요. (최대 50MB)</span>
+        </label>
+        <label>제목<input name="title" maxlength="40" required placeholder="작품 제목" /></label>
+        <label>작품 소개 (선택)<textarea name="note" rows="4" maxlength="300" placeholder="무엇을 만들었는지, 어떻게 만들었는지 적어 주세요."></textarea></label>
+        <p id="upload-error" class="error" hidden></p>
+        <div class="detail-actions">
+          <button id="upload-submit" type="submit" class="btn primary">갤러리에 올리기</button>
+        </div>
+      </form>
     </div>
   </dialog>
 

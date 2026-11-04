@@ -18,6 +18,9 @@ Bambu Lab **P2S / X2D**(출력 범위 약 256mm)에 맞춰 설계 규칙이 들�
 - API 키는 **서버에만** 있고 학생 브라우저로는 절대 전달되지 않습니다.
 - 3D 렌더링은 각 학생 PC에서 하므로 28명이 동시에 써도 서버 부담이 적습니다.
 - 같은 동아리 학생끼리만 '동아리에 공유'한 작품과 사용한 프롬프트를 볼 수 있습니다.
+- 프롬프트에 참고 사진을 3장까지 첨부할 수 있습니다.
+- 공유된 작품에 좋아요를 누를 수 있고, 관리자 페이지에서 동아리별 순위를 보고 대표 작품을 정할 수 있습니다.
+- Tinkercad 등 다른 프로그램으로 만든 STL 파일도 갤러리에 바로 올릴 수 있습니다. (파일 최대 50MB, 학생 1명당 5개)
 
 ## 실행 방법
 
@@ -61,6 +64,7 @@ Bambu Lab **P2S / X2D**(출력 범위 약 256mm)에 맞춰 설계 규칙이 들�
 ### 1. Supabase 준비
 1. [supabase.com](https://supabase.com)에서 새 프로젝트 생성 (Region: **Northeast Asia (Seoul)** 권장)
 2. 왼쪽 메뉴 **SQL Editor** → `supabase/schema.sql` 내용을 전부 붙여넣고 **Run**
+   - 새 기능이 들어간 버전으로 업데이트할 때도 배포 전에 다시 실행하세요. 여러 번 실행해도 안전합니다.
 3. **Project Settings → API**에서 두 값을 복사
    - `Project URL` → `SUPABASE_URL`
    - `service_role` 키 (secret) → `SUPABASE_SERVICE_ROLE_KEY` ⚠️ 절대 공개 금지
@@ -77,10 +81,10 @@ Bambu Lab **P2S / X2D**(출력 범위 약 256mm)에 맞춰 설계 규칙이 들�
 
 ## 데이터 관리
 
-- **Supabase 사용 시:** 대시보드 **Table Editor**에서 학생(`students`)·도안(`designs`)을 보고 고치거나 지울 수 있습니다.
+- **Supabase 사용 시:** 대시보드 **Table Editor**에서 학생(`students`)·도안(`designs`)·좋아요(`likes`)·직접 올린 STL 파일(`design_files`)을 보고 고치거나 지울 수 있습니다.
   - 학생 이름/동아리를 잘못 입력한 경우: `students` 표에서 직접 수정 (동아리를 옮길 때는 그 학생 도안(`designs`)의 `club`도 같이 바꿔야 갤러리에 맞게 나옵니다)
   - 학생을 지우면 그 학생의 도안과 로그인 정보도 함께 지워집니다.
-- **로컬 테스트 시** (`SUPABASE_URL`을 비워 둔 경우): `data/db.json` 파일 하나에 저장됩니다.
+- **로컬 테스트 시** (`SUPABASE_URL`을 비워 둔 경우): `data/db.json` 파일에 저장됩니다. (직접 올린 STL 파일은 `data/stl/` 폴더)
 
 ### 동아리 이름 바꾸기
 
@@ -113,6 +117,7 @@ server.js            서버 (로그인, 도안 저장, Claude 스트리밍, 관�
 lib/prompt.js        Claude에게 주는 3D 프린팅 설계 규칙 (시스템 프롬프트)
 lib/store.js         로컬 테스트용 JSON 파일 저장소
 lib/supabase-store.js  Supabase 저장소
+lib/stl.js           직접 올린 STL 파일 검사
 supabase/schema.sql  Supabase 테이블 생성 SQL
 render.yaml          Render 배포 설정
 public/index.html    학생 화면

@@ -189,6 +189,20 @@ details.thinking div { white-space: pre-wrap; margin-top: 4px; max-height: 180px
 .detail-actions { gap: 8px; align-items: center; }
 .gallery-empty { color: var(--muted); padding: 40px; text-align: center; grid-column: 1 / -1; }
 
+/* STL 직접 올리기 */
+.gallery-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.gallery-title-row h2 { margin: 0; }
+.src-badge { position: absolute; top: 8px; right: 8px; background: rgba(255, 255, 255, 0.92); color: #344; font-size: 0.75rem; font-weight: 700; border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; }
+.upload-form { overflow-y: auto; }
+.upload-form label { display: grid; gap: 6px; margin-top: 14px; font-size: 0.9rem; font-weight: 600; }
+.upload-form input[name], .upload-form textarea { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; font-weight: 400; resize: vertical; }
+.upload-form input[type="file"] { font-weight: 400; }
+.upload-form .error { margin-top: 12px; }
+.upload-form .detail-actions { margin-top: auto; }
+.chat-form.disabled { opacity: 0.55; pointer-events: none; }
+.empty-chat .upload-note { background: var(--ai-bubble); color: var(--text); border-radius: 8px; padding: 8px 12px; text-align: left; white-space: pre-wrap; }
+.detail-prompts.plain { list-style: none; padding-left: 0; }
+
 /* 상세 보기 */
 .detail-dialog { border: 0; border-radius: 16px; padding: 0; width: min(1100px, 94vw); height: min(720px, 90vh); }
 .detail-dialog::backdrop { background: rgba(20, 25, 40, 0.5); }

@@ -118,7 +118,7 @@
           return `<div class="rank-item${first ? " first" : ""}">
             <span class="no">${first ? "👑" : i + 1}</span>
             ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" />` : `<span class="ph"></span>`}
-            <span class="t"><b>${esc(d.title)}</b><span class="muted small">${esc(d.owner?.name || "")} (${esc(d.owner?.studentNo || "")})</span></span>
+            <span class="t"><b>${d.source === "upload" ? "🧩 " : ""}${esc(d.title)}</b><span class="muted small">${esc(d.owner?.name || "")} (${esc(d.owner?.studentNo || "")})</span></span>
             <span class="likes">♥ ${d.likes}</span>
           </div>`;
         }).join("");

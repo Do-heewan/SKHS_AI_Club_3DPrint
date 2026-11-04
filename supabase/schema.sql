@@ -99,3 +99,18 @@ create index if not exists likes_student_idx on public.likes(student_id);
 
 alter table public.likes enable row level security;
 revoke all on public.likes from anon, authenticated;
+
+-- 직접 올린 STL 도안 (Tinkercad 등 다른 프로그램으로 만든 작품)
+alter table public.designs add column if not exists source text not null default 'ai'
+  check (source in ('ai', 'upload'));  -- ai: AI 대화로 만든 도안, upload: STL 파일을 직접 올린 도안
+alter table public.designs add column if not exists note text not null default '';  -- 작품 소개 (STL 올릴 때 입력)
+
+-- 올린 STL 파일 (gzip 압축본을 base64 로 저장). 도안 목록 조회가 무거워지지 않게 따로 둔다.
+create table if not exists public.design_files (
+  design_id   uuid primary key references public.designs(id) on delete cascade,
+  stl_gz      text not null,
+  created_at  timestamptz not null default now()
+);
+
+alter table public.design_files enable row level security;
+revoke all on public.design_files from anon, authenticated;

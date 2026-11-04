@@ -8,6 +8,7 @@ import { loadEnv } from "./lib/env.js";
 import { Store } from "./lib/store.js";
 import { SupabaseStore } from "./lib/supabase-store.js";
 import { SYSTEM_PROMPT } from "./lib/prompt.js";
+import { stlProblem } from "./lib/stl.js";
 
 loadEnv();
 
@@ -73,6 +74,7 @@ function designSummary(d, viewer) {
     id: d.id,
     title: d.title,
     shared: d.shared,
+    source: d.source || "ai",
     thumbnail: d.thumbnail || null,
     hasCode: Boolean(d.code),
     updatedAt: d.updatedAt,
@@ -179,6 +181,7 @@ app.get("/api/designs/:id", auth, async (req, res) => {
       owner: { name: owner.name, studentNo: owner.studentNo },
       code: d.code,
       chat: d.chat,
+      note: d.note || "",
       mine: d.ownerId === req.student.id,
     },
   });
@@ -189,7 +192,7 @@ app.patch("/api/designs/:id", auth, async (req, res) => {
   if (!d) return;
   const patch = {};
   if (typeof req.body.title === "string") patch.title = req.body.title.trim().slice(0, 40) || "새 도안";
-  if (typeof req.body.code === "string") patch.code = req.body.code.slice(0, 100_000);
+  if (typeof req.body.code === "string" && d.source !== "upload") patch.code = req.body.code.slice(0, 100_000);
   if (typeof req.body.shared === "boolean") patch.shared = req.body.shared;
   if (typeof req.body.thumbnail === "string" && req.body.thumbnail.startsWith("data:image/")) {
     patch.thumbnail = req.body.thumbnail.slice(0, 600_000);
@@ -222,11 +225,59 @@ app.post("/api/designs/:id/like", auth, async (req, res) => {
   res.json({ likes: likedBy.length, liked: likedBy.includes(req.student.id) });
 });
 
+// ---------- STL 직접 올리기 (Tinkercad 등) ----------
+
+const MAX_UPLOADS = 5; // 학생 1명이 가지고 있을 수 있는 STL 도안 수
+
+app.post("/api/designs/upload", auth, async (req, res) => {
+  const uploads = (await store.designsByOwner(req.student.id)).filter((d) => d.source === "upload");
+  if (uploads.length >= MAX_UPLOADS) {
+    return res.status(400).json({
+      error: `직접 올린 STL은 ${MAX_UPLOADS}개까지 가지고 있을 수 있어요. 내 작업실에서 예전 것을 지운 뒤 올려 주세요.`,
+    });
+  }
+  const gz = Buffer.from(String(req.body.stl || ""), "base64");
+  const problem = await stlProblem(gz);
+  if (problem) return res.status(400).json({ error: problem });
+
+  const thumb = req.body.thumbnail;
+  const d = await store.addDesign({
+    ownerId: req.student.id,
+    club: req.student.club,
+    title: String(req.body.title || "").trim().slice(0, 40) || "내 STL 작품",
+    note: String(req.body.note || "").trim().slice(0, 300),
+    source: "upload",
+    thumbnail: typeof thumb === "string" && thumb.startsWith("data:image/") && thumb.length <= 600_000 ? thumb : null,
+    shared: true,
+  });
+  try {
+    await store.saveStl(d.id, gz);
+  } catch (err) {
+    await store.deleteDesign(d.id).catch(() => {});
+    throw err;
+  }
+  res.json({ design: designSummary(d) });
+});
+
+// 올린 STL 파일 받기. 저장해 둔 gzip 을 그대로 보내면 브라우저가 알아서 압축을 푼다.
+// no-cache: 학교 공용 PC에서 다른 학생이 캐시로 보는 일이 없도록 매번 권한을 확인한다. (바뀌지 않았으면 304로 짧게 응답)
+app.get("/api/designs/:id/stl", auth, async (req, res) => {
+  const d = await loadDesignFor(req, res, { allowClub: true });
+  if (!d) return;
+  const gz = d.source === "upload" ? await store.getStl(d.id) : null;
+  if (!gz) return res.status(404).json({ error: "STL 파일을 찾을 수 없어요." });
+  res.set({ "Content-Type": "model/stl", "Content-Encoding": "gzip", "Cache-Control": "private, no-cache" });
+  res.send(gz);
+});
+
 // ---------- Claude 대화 (SSE 스트리밍) ----------
 
 app.post("/api/designs/:id/chat", auth, async (req, res) => {
   const d = await loadDesignFor(req, res);
   if (!d) return;
+  if (d.source === "upload") {
+    return res.status(400).json({ error: "직접 올린 STL 도안은 AI와 대화할 수 없어요. '＋ 새 도안'으로 시작해 주세요." });
+  }
   const kind = req.body.kind === "fix" ? "fix" : "user";
   const images = kind === "user" ? parseImages(req.body.images) : [];
   if (Array.isArray(req.body.images) && req.body.images.length && !images.length) {
@@ -401,6 +452,7 @@ app.get("/api/admin/ranking", adminOnly, async (req, res) => {
       .map((d) => ({
         id: d.id,
         title: d.title,
+        source: d.source || "ai",
         thumbnail: d.thumbnail || null,
         owner: d.owner,
         likes: d.likedBy.length,
