@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>실시간 현황판 · 성광 AI 3D 스튜디오</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    body { padding: 20px; }
+    .live { max-width: 1600px; margin: 0 auto; display: grid; gap: 14px; }
+    .live-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .live-head h1 { margin: 0; font-size: 1.4rem; }
+    .live-head .spacer { flex: 1; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row input { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+    .conn { font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+    .conn.on { color: var(--ok); }
+    .conn.on::before { content: "●"; margin-right: 5px; animation: blink 1.6s infinite; }
+    .conn.off { color: var(--danger); }
+    @keyframes blink { 50% { opacity: 0.2; } }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .stat { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 0.9rem; }
+    .stat b { display: block; font-size: 1.35rem; margin: 2px 0; }
+    .stat.alert { border-color: #f1b5b5; background: #fff6f6; }
+    .stat.alert b { color: var(--danger); }
+
+    .live-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+    .clubs { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+    .club { background: #fff; border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 12px; overflow: hidden; }
+    .club-head { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 4px; font-size: 0.85rem; }
+    .club-head h2 { margin: 0; font-size: 1.05rem; color: var(--c); }
+    .club-head .top { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .members { list-style: none; margin: 0; padding: 0; }
+    .members .empty { padding: 14px; }
+    .member { display: flex; gap: 10px; padding: 9px 12px; border-top: 1px solid var(--line); align-items: flex-start; }
+    .member:first-child { border-top: 0; }
+    .member.offline { opacity: 0.5; }
+    .member .thumb { width: 60px; height: 45px; border-radius: 6px; background: #eef1f6; flex: none; overflow: hidden; display: grid; place-items: center; font-size: 1.2rem; }
+    .member .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .member .info { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: 0.84rem; }
+    .member .who b { font-size: 0.95rem; }
+    .member .today { font-size: 0.78rem; color: var(--muted); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .member .today b { font-size: 0.95rem; color: var(--text); }
+    .member .today.full, .member .today.full b { color: var(--danger); }
+    .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+    .badge.generating { background: #efe9ff; color: #6a3fd6; }
+    .badge.queued { background: #fff4db; color: var(--warn); }
+    .badge.online { background: #e3f6ec; color: var(--ok); }
+    .badge.away, .badge.offline { background: #f1f3f7; color: var(--muted); }
+    .line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prompt { color: #4a5263; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .problem { color: var(--danger); font-weight: 600; }
+
+    .feed-box { background: #fff; border: 1px solid var(--line); border-radius: 12px; position: sticky; top: 12px; max-height: calc(100vh - 24px); display: flex; flex-direction: column; }
+    .feed-box h2 { margin: 0; padding: 12px 14px; font-size: 1rem; border-bottom: 1px solid var(--line); }
+    .feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 0.83rem; }
+    .feed li { padding: 7px 14px; border-top: 1px solid #f0f2f6; overflow-wrap: anywhere; }
+    .feed li:first-child { border-top: 0; }
+    .feed li.new { animation: flash 2.5s ease-out; }
+    .feed li.bad { color: var(--danger); }
+    .feed li.empty { padding: 14px; }
+    .feed time { color: var(--muted); font-variant-numeric: tabular-nums; }
+    @keyframes flash { from { background: #fff3c4; } to { background: transparent; } }
+    .chip { display: inline-block; border-radius: 6px; padding: 0 6px; font-size: 0.72rem; font-weight: 700; color: #fff; background: var(--c); }
+    .c0 { --c: #4f6ef7; }
+    .c1 { --c: #1f9d63; }
+    .c2 { --c: #e8590c; }
+    .c3 { --c: #ae3ec9; }
+    .cx { --c: #868e96; }
+
+    @media (max-width: 1100px) {
+      .live-body { grid-template-columns: 1fr; }
+      .feed-box { position: static; max-height: 60vh; }
+    }
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="live">
+    <div class="live-head">
+      <h1>실시간 현황판</h1>
+      <span id="conn" class="conn"></span>
+      <span class="spacer"></span>
+      <a class="btn small" href="/admin.html">사용량 · 좋아요 순위 →</a>
+    </div>
+    <form id="f" class="row">
+      <input id="pw" type="password" placeholder="관리자 비밀번호" autocomplete="current-password" />
+      <button class="btn primary">보기</button>
+      <span id="msg" class="muted"></span>
+    </form>
+    <div id="totals" class="stats"></div>
+    <div class="live-body">
+      <div id="clubs" class="clubs"></div>
+      <aside class="feed-box">
+        <h2>활동 기록 <span class="muted small">모든 동아리 · 최신순</span></h2>
+        <ol id="feed" class="feed"></ol>
+      </aside>
+    </div>
+    <p class="muted small">
+      3초마다 자동으로 새로고침됩니다. 접속 상태와 활동 기록은 서버 메모리에만 있어서 서버가 다시 켜지면(Render가 잠들었다 깨는 경우 등) 비워집니다.
+      오늘 요청 수, 도안, 좋아요는 DB에서 읽어 오므로 그대로 남습니다.
+    </p>
+  </div>
+  <script>
+    const POLL_MS = 3000;
+    const HELP_MS = 30 * 60 * 1000; // 30분 안에 생긴 문제만 '도움 필요'로 센다
+    const EVENTS = {
+      login: ["🔑", "로그인"],
+      new_design: ["✨", "새 도안 시작"],
+      prompt: ["💬", "요청"],
+      fix: ["🔧", "렌더링 오류를 AI가 고치는 중"],
+      done: ["🤖", "AI 답변 완료"],
+      cancel: ["⏹️", "요청 취소"],
+      refusal: ["🚫", "AI가 거절한 요청"],
+      error: ["⚠️", "오류"],
+      render_ok: ["🧊", "3D 모델 완성"],
+      render_fail: ["❌", "3D 모델 만들기 실패"],
+      share: ["🌐", "갤러리에 공유"],
+      unshare: ["↩️", "공유 취소"],
+      like: ["♥", "좋아요"],
+      upload: ["🧩", "STL 올림"],
+      delete: ["🗑️", "도안 삭제"],
+      limit: ["⛔", "오늘 요청 한도 도달"],
+    };
+    const PROBLEMS = { render_fail: "3D 모델 만들기 실패", error: "오류", refusal: "AI가 거절한 요청", limit: "오늘 요청 한도 도달" };
+    const BAD = new Set(Object.keys(PROBLEMS));
+
+    const $ = (s) => document.querySelector(s);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    const short = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
+    const pw = () => $("#pw").value;
+    $("#pw").value = sessionStorage.getItem("adminpw") || "";
+
+    let polling = false;
+    let inFlight = false;
+    let timer = null;
+    let last = null; // 마지막으로 받은 현황
+    let boot = null; // 서버가 켜진 시각 (바뀌면 서버가 다시 켜진 것)
+    let lastEventId = 0;
+    let layout = ""; // 동아리별 학생 목록이 바뀌었을 때만 화면 틀을 새로 그린다
+    let thumbsBusy = false;
+    const thumbs = new Map(); // 도안 id -> { v: updatedAt, src }
+    const colors = new Map(); // 동아리 이름 -> 색깔 class
+
+    async function call(path) {
+      const res = await fetch(path, { headers: { "x-admin-password": pw() } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw Object.assign(new Error(data.error || `오류 (${res.status})`), { status: res.status });
+      return data;
+    }
+
+    function clock(ts) {
+      return new Date(ts).toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul" }); // 16:05:09 (ko-KR 은 '16시 5분 9초'로 길어짐)
+    }
+    function ago(ms) {
+      const s = Math.max(0, Math.round(ms / 1000));
+      if (s < 10) return "방금";
+      if (s < 60) return `${s}초 전`;
+      if (s < 3600) return `${Math.floor(s / 60)}분 전`;
+      return `${Math.floor(s / 3600)}시간 전`;
+    }
+    function elapsed(ms) {
+      const s = Math.max(0, Math.round(ms / 1000));
+      return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`;
+    }
+    // 내용이 그대로면 건드리지 않는다. (3초마다 다시 그려도 깜빡이지 않게)
+    function setHtml(el, html) {
+      if (el._html === html) return;
+      el._html = html;
+      el.innerHTML = html;
+    }
+
+    function setConn(state, at) {
+      $("#conn").className = `conn ${state}`;
+      $("#conn").textContent =
+        state === "on" ? `실시간 · ${clock(at)} 기준` : state === "off" ? "연결이 끊겼어요. 다시 연결하는 중…" : "";
+    }
+
+    function start() {
+      polling = true;
+      poll();
+    }
+
+    async function poll() {
+      if (!polling || inFlight) return;
+      inFlight = true;
+      clearTimeout(timer);
+      try {
+        const data = await call("/api/admin/live");
+        sessionStorage.setItem("adminpw", pw());
+        $("#f").hidden = true;
+        render(data);
+        setConn("on", data.now);
+        loadThumbs();
+      } catch (err) {
+        if (err.status === 403) {
+          polling = false;
+          $("#f").hidden = false;
+          $("#msg").textContent = err.message;
+          setConn("");
+        } else {
+          console.error(err);
+          setConn("off");
+        }
+      } finally {
+        inFlight = false;
+      }
+      if (polling && !document.hidden) timer = setTimeout(poll, POLL_MS);
+    }
+
+    function render(data) {
+      last = data;
+      data.clubs.forEach((c, i) => colors.set(c.club, c.listed ? `c${i % 4}` : "cx"));
+      if (data.boot !== boot) {
+        boot = data.boot;
+        lastEventId = 0;
+        $("#feed").innerHTML = "";
+      }
+      renderTotals(data);
+      renderClubs(data);
+      renderFeed(data);
+    }
+
+    function renderTotals({ clubs, queue, now }) {
+      const total = (key) => clubs.reduce((n, c) => n + c[key], 0);
+      const members = clubs.flatMap((c) => c.members);
+      const help = members.filter((m) => m.problem && now - m.problem.at < HELP_MS).length;
+      const cards = [
+        ["접속 중", `${total("online")} / ${members.length}명`],
+        ["AI 생성 중", `${total("working")}명`, `동시 처리 ${queue.running}/${queue.max}${queue.waiting ? ` · 대기 ${queue.waiting}명` : ""}`],
+        ["오늘 요청", `${total("today")}회`],
+        ["도움 필요", `${help}명`, help ? "빨간 글씨인 학생을 확인하세요" : "최근 30분", help ? "alert" : ""],
+        ["공유 작품", `${total("shared")}개`, `좋아요 ${total("likes")}개`],
+      ];
+      setHtml(
+        $("#totals"),
+        cards
+          .map(([k, v, sub, cls]) => `<div class="stat ${cls || ""}">${k}<b>${v}</b>${sub ? `<span class="muted small">${sub}</span>` : ""}</div>`)
+          .join(""),
+      );
+    }
+
+    function renderClubs(data) {
+      const key = data.clubs.map((c) => `${c.club}:${c.members.map((m) => m.id).join(",")}`).join("|");
+      if (key !== layout) {
+        layout = key;
+        $("#clubs").innerHTML = data.clubs
+          .map((c) => {
+            const rows = c.members
+              .map((m) => `<li class="member" data-id="${esc(m.id)}"><div class="thumb"></div><div class="info"></div><div class="today"></div></li>`)
+              .join("");
+            return `<section class="club ${colors.get(c.club)}"><div class="club-head"></div>
+              <ul class="members">${rows || '<li class="empty muted small">아직 가입한 학생이 없어요.</li>'}</ul></section>`;
+          })
+          .join("");
+      }
+      const sections = $("#clubs").children;
+      data.clubs.forEach((c, i) => {
+        setHtml(sections[i].querySelector(".club-head"), clubHead(c));
+        for (const m of c.members) updateMember(sections[i].querySelector(`[data-id="${m.id}"]`), m, data);
+      });
+    }
+
+    function clubHead(c) {
+      const top = c.top
+        ? `<div class="top">👑 ${esc(c.top.title)} <span class="muted">· ${esc(c.top.owner)} · ♥ ${c.top.likes}</span></div>`
+        : '<div class="top muted">아직 좋아요를 받은 작품이 없어요</div>';
+      const unlisted = c.listed ? "" : ' <span class="muted small">(지금 동아리 목록에 없는 이름)</span>';
+      return `<h2>${esc(c.club)}${unlisted}</h2>
+        <div>접속 <b>${c.online}</b>/${c.members.length} · 생성 중 <b>${c.working}</b> · 오늘 요청 <b>${c.today}</b> · 공유 <b>${c.shared}</b> · ♥ <b>${c.likes}</b></div>${top}`;
+    }
+
+    function updateMember(li, m, { now, dailyLimit }) {
+      li.className = `member ${m.status}`;
+      setHtml(li.querySelector(".info"), memberInfo(m, now));
+      const today = li.querySelector(".today");
+      setHtml(today, `오늘<br /><b>${m.today}</b>/${dailyLimit}`);
+      today.classList.toggle("full", m.today >= dailyLimit);
+      setThumb(li.querySelector(".thumb"), m.current);
+    }
+
+    function memberInfo(m, now) {
+      const g = m.generating;
+      let badge = "오프라인";
+      if (g) badge = `${g.queued ? "⏳ 차례 기다리는 중" : g.kind === "fix" ? "🔧 AI가 오류 고치는 중" : "✨ AI가 만드는 중"} ${elapsed(now - g.since)}`;
+      else if (m.status === "online") badge = `접속 중 · ${m.tab === "gallery" ? "갤러리" : "작업실"}`;
+      else if (m.status === "away") badge = `마지막 활동 ${ago(now - m.seenAt)}`;
+      const d = m.current;
+      const design = d
+        ? `<div class="line">${d.source === "upload" ? "🧩 " : ""}${esc(d.title)}${d.shared ? ' <span title="갤러리에 공유됨">🌐</span>' : ""}</div>`
+        : '<div class="line muted">아직 도안이 없어요</div>';
+      const p = m.prompt;
+      const prompt = p
+        ? `<div class="prompt" title="${esc(p.text)}">💬 ${esc(p.text)}${p.images ? ` 📷${p.images}` : ""} <span class="muted">· ${ago(now - p.at)}</span></div>`
+        : "";
+      const q = m.problem;
+      const problem = q
+        ? `<div class="problem line" title="${esc(q.message)}">⚠ ${PROBLEMS[q.type] || "문제"}${q.message ? `: ${esc(q.message)}` : ""} · ${ago(now - q.at)}</div>`
+        : "";
+      return `<div class="who"><b>${esc(m.name)}</b> <span class="muted small">${esc(m.studentNo)}</span>
+        <span class="badge ${m.status}">${badge}</span></div>${design}${prompt}${problem}`;
+    }
+
+    function setThumb(box, d) {
+      const src = (d && thumbs.get(d.id)?.src) || "";
+      setHtml(box, src ? `<img src="${esc(src)}" alt="" />` : d?.source === "upload" ? "🧩" : "");
+    }
+
+    // 미리보기 이미지는 크기가 커서, 바뀐 도안 것만 따로 받아 온다.
+    async function loadThumbs() {
+      const need = last.clubs
+        .flatMap((c) => c.members)
+        .map((m) => m.current)
+        .filter((d) => d && thumbs.get(d.id)?.v !== d.updatedAt);
+      if (thumbsBusy || !need.length) return;
+      thumbsBusy = true;
+      try {
+        const { thumbs: got } = await call(`/api/admin/thumbs?ids=${need.map((d) => d.id).join(",")}`);
+        for (const d of need) {
+          const t = got[d.id];
+          thumbs.set(d.id, { v: t ? t.updatedAt : d.updatedAt, src: t?.thumbnail || "" });
+        }
+        renderClubs(last);
+      } catch (err) {
+        console.error(err); // 다음 새로고침 때 다시 받는다
+      } finally {
+        thumbsBusy = false;
+      }
+    }
+
+    function renderFeed({ events }) {
+      const feed = $("#feed");
+      const fresh = events.filter((e) => e.id > lastEventId).reverse(); // 오래된 것부터 맨 위에 끼워 넣어서 최신이 맨 위로
+      if (fresh.length) {
+        const animate = lastEventId > 0;
+        lastEventId = events[0].id;
+        feed.querySelector(".empty")?.remove();
+        for (const e of fresh) feed.insertAdjacentHTML("afterbegin", eventItem(e, animate));
+        while (feed.children.length > 150) feed.lastElementChild.remove();
+      }
+      if (!feed.children.length) {
+        feed.innerHTML = '<li class="empty muted">아직 활동 기록이 없어요. 학생이 로그인하면 여기에 나타나요.</li>';
+      }
+    }
+
+    function eventItem(e, animate) {
+      const [icon, label] = EVENTS[e.type] || ["•", e.type];
+      let detail = "";
+      if (e.type === "prompt") detail = ` “${esc(short(e.text, 120))}”${e.images ? ` 📷${e.images}` : ""}`;
+      else {
+        if (e.title) detail += ` · ${esc(e.title)}`;
+        if (e.text) detail += ` · ${esc(short(e.text, 80))}`;
+      }
+      const cls = [animate && "new", BAD.has(e.type) && "bad"].filter(Boolean).join(" ");
+      return `<li class="${cls}"><time>${clock(e.at)}</time> <span class="chip ${colors.get(e.club) || "cx"}">${esc(e.club)}</span>
+        <b>${esc(e.name)}</b> ${icon} ${label}${detail}</li>`;
+    }
+
+    $("#f").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("#msg").textContent = "";
+      start();
+    });
+    // 다른 탭을 보는 동안에는 쉬었다가, 돌아오면 바로 새로고침한다.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) poll();
+    });
+    if (pw()) start();
+  </script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import { Store } from "./lib/store.js";
 import { SupabaseStore } from "./lib/supabase-store.js";
 import { SYSTEM_PROMPT } from "./lib/prompt.js";
 import { stlProblem } from "./lib/stl.js";
+import { Live, liveSnapshot } from "./lib/live.js";
 
 loadEnv();
 
@@ -56,6 +57,7 @@ async function auth(req, res, next) {
   const student = token ? await store.findStudentByToken(token) : null;
   if (!student) return res.status(401).json({ error: "다시 로그인해 주세요." });
   req.student = student;
+  live.seen(student);
   next();
 }
 
@@ -84,6 +86,7 @@ function designSummary(d, viewer) {
 }
 
 const busyDesigns = new Set();
+const live = new Live(); // 관리자 실시간 현황판용 접속 상태와 활동 기록 (서버 메모리)
 
 // 동시에 너무 많은 요청이 API로 몰리지 않도록 하는 간단한 대기열
 let running = 0;
@@ -132,6 +135,7 @@ app.post("/api/login", async (req, res) => {
   }
   const token = crypto.randomBytes(24).toString("hex");
   await store.addToken(student.id, token);
+  live.log(student, "login");
   res.json({ token, student: publicStudent(student) });
 });
 
@@ -143,6 +147,17 @@ app.get("/api/me", auth, (req, res) => {
   });
 });
 
+// 학생 화면이 30초마다, 그리고 화면을 바꿀 때 보내는 접속 신호 (관리자 실시간 현황판용)
+app.post("/api/presence", auth, (req, res) => {
+  const designId = typeof req.body.designId === "string" ? req.body.designId.slice(0, 64) : null;
+  live.seen(req.student, { tab: req.body.tab === "gallery" ? "gallery" : "studio", designId });
+  if (typeof req.body.renderError === "string") {
+    const title = String(req.body.title || "").slice(0, 40);
+    live.log(req.student, "render_fail", { text: req.body.renderError, design: designId && { id: designId, title } });
+  }
+  res.json({ ok: true });
+});
+
 // ---------- 내 도안 ----------
 
 app.get("/api/designs", auth, async (req, res) => {
@@ -152,6 +167,7 @@ app.get("/api/designs", auth, async (req, res) => {
 
 app.post("/api/designs", auth, async (req, res) => {
   const d = await store.addDesign({ ownerId: req.student.id, club: req.student.club, title: "새 도안" });
+  live.log(req.student, "new_design", { design: d });
   res.json({ design: designSummary(d) });
 });
 
@@ -196,7 +212,11 @@ app.patch("/api/designs/:id", auth, async (req, res) => {
   if (typeof req.body.shared === "boolean") patch.shared = req.body.shared;
   const thumbnail = parseThumbnail(req.body.thumbnail);
   if (thumbnail) patch.thumbnail = thumbnail;
+  const shareChanged = patch.shared !== undefined && patch.shared !== d.shared; // JSON 저장소는 d 를 그 자리에서 고치므로 먼저 확인
   await store.updateDesign(d.id, patch);
+  const design = { id: d.id, title: patch.title ?? d.title };
+  if (shareChanged) live.log(req.student, patch.shared ? "share" : "unshare", { design });
+  if (patch.thumbnail) live.log(req.student, "render_ok", { design }); // 학생 화면은 3D 모델이 완성되면 미리보기를 저장한다
   res.json({ ok: true });
 });
 
@@ -204,6 +224,7 @@ app.delete("/api/designs/:id", auth, async (req, res) => {
   const d = await loadDesignFor(req, res);
   if (!d) return;
   await store.deleteDesign(d.id);
+  live.log(req.student, "delete", { design: d });
   res.json({ ok: true });
 });
 
@@ -221,6 +242,7 @@ app.post("/api/designs/:id/like", auth, async (req, res) => {
   if (d.ownerId === req.student.id) return res.status(400).json({ error: "내 작품에는 좋아요를 누를 수 없어요." });
   if (!d.shared) return res.status(400).json({ error: "공유가 취소된 작품이에요." });
   const likedBy = await store.setLike(d.id, req.student.id, req.body.liked !== false);
+  if (req.body.liked !== false) live.log(req.student, "like", { design: d });
   res.json({ likes: likedBy.length, liked: likedBy.includes(req.student.id) });
 });
 
@@ -254,6 +276,7 @@ app.post("/api/designs/upload", auth, async (req, res) => {
     await store.deleteDesign(d.id).catch(() => {});
     throw err;
   }
+  live.log(req.student, "upload", { design: d });
   res.json({ design: designSummary(d) });
 });
 
@@ -287,6 +310,7 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
 
   const student = req.student;
   if (usedToday(student) >= DAILY_LIMIT) {
+    live.log(student, "limit", { design: d });
     return res.status(429).json({ error: `오늘 사용 가능한 요청 ${DAILY_LIMIT}회를 모두 사용했어요.` });
   }
   if (busyDesigns.has(d.id)) return res.status(409).json({ error: "이전 요청을 처리하는 중이에요. 잠시만 기다려 주세요." });
@@ -327,8 +351,16 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
     : { role: "user", content };
   const messages = [...d.messages, userMsg];
 
-  if (running >= MAX_CONCURRENT) send("status", { message: "다른 친구들의 요청을 처리하는 중이에요. 잠시 기다려 주세요…" });
+  const queued = running >= MAX_CONCURRENT;
+  live.log(student, kind === "fix" ? "fix" : "prompt", {
+    text: kind === "fix" ? "" : text,
+    design: d,
+    images: images.length,
+    queued,
+  });
+  if (queued) send("status", { message: "다른 친구들의 요청을 처리하는 중이에요. 잠시 기다려 주세요…" });
   await acquireSlot();
+  live.started(student);
   send("status", { message: "Claude가 도안을 구상하고 있어요…" });
 
   try {
@@ -359,6 +391,7 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
     const final = await stream.finalMessage();
 
     if (final.stop_reason === "refusal") {
+      live.log(student, "refusal", { design: d });
       send("error", { message: "이 요청은 처리할 수 없어요. 다른 표현으로 다시 요청해 보세요." });
       return;
     }
@@ -386,6 +419,10 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
     if (d.title === "새 도안" && kind === "user") patch.title = text.replace(/\s+/g, " ").slice(0, 24);
     await store.updateDesign(d.id, patch);
     await store.addTokenUsage(student.id, final.usage);
+    live.log(student, "done", {
+      text: final.stop_reason === "max_tokens" ? "답변이 길어서 잘렸어요" : code ? "" : "코드 없이 답했어요",
+      design: { id: d.id, title: patch.title || d.title },
+    });
 
     send("done", {
       text: replyText,
@@ -400,6 +437,7 @@ app.post("/api/designs/:id/chat", auth, async (req, res) => {
     if (err instanceof Anthropic.RateLimitError) message = "지금 요청이 너무 많아요. 30초 정도 후에 다시 시도해 주세요.";
     else if (err instanceof Anthropic.AuthenticationError) message = "서버의 API 키 설정에 문제가 있어요. 선생님께 알려 주세요.";
     else if (err instanceof Anthropic.APIUserAbortError) message = "요청이 취소되었어요.";
+    live.log(student, err instanceof Anthropic.APIUserAbortError ? "cancel" : "error", { text: message, design: d });
     // 실패한 요청은 하루 사용 횟수에서 빼 준다.
     await store.countUsage(student.id, today(), -1).catch(() => {});
     if (!res.writableEnded) send("error", { message });
@@ -465,6 +503,22 @@ app.get("/api/admin/ranking", adminOnly, async (req, res) => {
     return { club, designs: list.slice(0, 10), total: list.length };
   });
   res.json({ clubs });
+});
+
+// 실시간 현황판 (public/live.html 이 3초마다 불러감)
+app.get("/api/admin/live", adminOnly, async (req, res) => {
+  const { students, designs } = await store.liveData(today());
+  const queue = { running, waiting: waiting.length, max: MAX_CONCURRENT };
+  res.json(liveSnapshot(live, { clubs: CLUBS, students, designs, dailyLimit: DAILY_LIMIT, queue }));
+});
+
+// 현황판의 미리보기 이미지. 바뀐 도안 것만 따로 받아 간다.
+app.get("/api/admin/thumbs", adminOnly, async (req, res) => {
+  const ids = String(req.query.ids || "")
+    .split(",")
+    .filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+    .slice(0, 100);
+  res.json({ thumbs: await store.thumbnails(ids) });
 });
 
 app.post("/api/admin/reset-usage", adminOnly, async (req, res) => {

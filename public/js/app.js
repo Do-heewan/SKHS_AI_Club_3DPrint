@@ -23,6 +23,7 @@ const state = {
   fixAttempts: 0,
   viewer: null,
   galleryTimer: null,
+  presenceTimer: null,
   attachments: [], // 보낼 참고 이미지 (data URL)
   gallery: [], // 동아리 갤러리 작품 목록
   gallerySort: "likes",
@@ -92,6 +93,7 @@ function logout() {
   state.token = null;
   localStorage.removeItem(TOKEN_KEY);
   clearInterval(state.galleryTimer);
+  clearInterval(state.presenceTimer);
   showLogin();
 }
 $("#logout-btn").addEventListener("click", logout);
@@ -106,12 +108,24 @@ async function showApp(me) {
   updateUsage(me.usedToday, me.dailyLimit);
   if (!state.viewer) state.viewer = new Viewer($("#viewer"));
   renderExamples();
+  clearInterval(state.presenceTimer);
+  state.presenceTimer = setInterval(sendPresence, 30000);
   await loadDesigns();
 }
 
 function updateUsage(used, limit = state.config.dailyLimit) {
   $("#usage-label").textContent = `오늘 ${used}/${limit}회`;
 }
+
+// 선생님 실시간 현황판용 접속 신호: 지금 보고 있는 화면과 도안을 30초마다, 그리고 화면이 바뀔 때 알린다.
+function sendPresence(extra = {}) {
+  if (!state.token || !state.me) return;
+  const tab = $("#gallery").hidden ? "studio" : "gallery";
+  api("/api/presence", { method: "POST", body: { tab, designId: state.design?.id, ...extra } }).catch(() => {});
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) sendPresence();
+});
 
 document.querySelectorAll(".tab").forEach((tab) =>
   tab.addEventListener("click", () => {
@@ -124,6 +138,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
       loadGallery();
       state.galleryTimer = setInterval(loadGallery, 20000);
     }
+    sendPresence();
   }),
 );
 
@@ -175,6 +190,7 @@ async function openDesign(id) {
   state.design = design;
   state.stl = null;
   state.fixAttempts = 0;
+  sendPresence();
   const uploaded = design.source === "upload";
   $("#design-select").value = id;
   $("#title-input").value = design.title;
@@ -591,6 +607,7 @@ async function buildModel(code, { autoFix, saveThumb }) {
       return sendMessage(msg, "fix");
     }
     addSystemNote(`렌더링 오류: ${result.error.slice(0, 300)}`, "error");
+    sendPresence({ renderError: result.error.slice(0, 300), title: state.design.title }); // 선생님 현황판에 '도움 필요'로 표시
     return;
   }
 
