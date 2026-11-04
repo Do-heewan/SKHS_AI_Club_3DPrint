@@ -683,7 +683,7 @@ function renderGallery() {
       const isTop = top > 0 && d.likes === top;
       return `<div class="card${isMine(d) ? " mine" : ""}${isTop ? " top" : ""}" data-id="${d.id}" role="button" tabindex="0">
           <div class="thumb-wrap">
-            ${d.thumbnail ? `<img src="${d.thumbnail}" alt="" loading="lazy" />` : `<div class="no-thumb">미리보기 없음</div>`}
+            ${d.thumbnail ? `<img src="${escapeHtml(d.thumbnail)}" alt="" loading="lazy" />` : `<div class="no-thumb">미리보기 없음</div>`}
             ${isTop ? `<span class="crown">👑 1위</span>` : ""}
             ${d.source === "upload" ? `<span class="src-badge">🧩 STL</span>` : ""}
           </div>

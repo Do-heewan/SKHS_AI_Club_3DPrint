@@ -194,9 +194,8 @@ app.patch("/api/designs/:id", auth, async (req, res) => {
   if (typeof req.body.title === "string") patch.title = req.body.title.trim().slice(0, 40) || "새 도안";
   if (typeof req.body.code === "string" && d.source !== "upload") patch.code = req.body.code.slice(0, 100_000);
   if (typeof req.body.shared === "boolean") patch.shared = req.body.shared;
-  if (typeof req.body.thumbnail === "string" && req.body.thumbnail.startsWith("data:image/")) {
-    patch.thumbnail = req.body.thumbnail.slice(0, 600_000);
-  }
+  const thumbnail = parseThumbnail(req.body.thumbnail);
+  if (thumbnail) patch.thumbnail = thumbnail;
   await store.updateDesign(d.id, patch);
   res.json({ ok: true });
 });
@@ -240,14 +239,13 @@ app.post("/api/designs/upload", auth, async (req, res) => {
   const problem = await stlProblem(gz);
   if (problem) return res.status(400).json({ error: problem });
 
-  const thumb = req.body.thumbnail;
   const d = await store.addDesign({
     ownerId: req.student.id,
     club: req.student.club,
     title: String(req.body.title || "").trim().slice(0, 40) || "내 STL 작품",
     note: String(req.body.note || "").trim().slice(0, 300),
     source: "upload",
-    thumbnail: typeof thumb === "string" && thumb.startsWith("data:image/") && thumb.length <= 600_000 ? thumb : null,
+    thumbnail: parseThumbnail(req.body.thumbnail),
     shared: true,
   });
   try {
@@ -422,6 +420,11 @@ function parseImages(list) {
     if (!m || m[2].length > 2_800_000) return [];
     return [{ url, mediaType: m[1], data: m[2] }];
   });
+}
+
+// 미리보기 이미지: 브라우저가 만든 이미지 data URL 만 받는다. (따옴표 등이 섞여 있으면 갤러리를 보는 다른 학생 화면에 코드를 심을 수 있음)
+function parseThumbnail(v) {
+  return typeof v === "string" && v.length <= 600_000 && /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
 }
 
 function extractCode(text) {
