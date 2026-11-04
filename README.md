@@ -28,7 +28,7 @@ Bambu Lab **P2S / X2D**(출력 범위 약 256mm)에 맞춰 설계 규칙이 들�
    ```
 3. `.env.example`을 복사해 `.env`를 만들고 값을 채웁니다.
    - `ANTHROPIC_API_KEY`: Claude 콘솔에서 발급한 키
-   - `CLUBS`: 동아리 이름 3개 (쉼표로 구분)
+   - `CLUBS`: 동아리 이름 3개 (쉼표로 구분). 학생이 가입한 뒤에 바꿀 때는 아래 [동아리 이름 바꾸기](#동아리-이름-바꾸기) 참고
    - `ACCESS_CODE`: 학생 입장 코드 (외부인이 API 크레딧을 쓰지 못하게 막는 용도)
    - `ADMIN_PASSWORD`: 관리자 페이지 비밀번호
 4. 서버 실행
@@ -78,9 +78,33 @@ Bambu Lab **P2S / X2D**(출력 범위 약 256mm)에 맞춰 설계 규칙이 들�
 ## 데이터 관리
 
 - **Supabase 사용 시:** 대시보드 **Table Editor**에서 학생(`students`)·도안(`designs`)을 보고 고치거나 지울 수 있습니다.
-  - 학생 이름/동아리를 잘못 입력한 경우: `students` 표에서 직접 수정
+  - 학생 이름/동아리를 잘못 입력한 경우: `students` 표에서 직접 수정 (동아리를 옮길 때는 그 학생 도안(`designs`)의 `club`도 같이 바꿔야 갤러리에 맞게 나옵니다)
   - 학생을 지우면 그 학생의 도안과 로그인 정보도 함께 지워집니다.
 - **로컬 테스트 시** (`SUPABASE_URL`을 비워 둔 경우): `data/db.json` 파일 하나에 저장됩니다.
+
+### 동아리 이름 바꾸기
+
+학생과 도안에는 동아리 이름이 글자 그대로 저장됩니다. `CLUBS`만 바꾸면 이미 가입한 학생은 예전 이름으로 남아서 로그인할 수 없으니, 저장된 이름도 같이 바꿔 주세요.
+
+1. 저장된 이름 바꾸기
+   - **Supabase:** SQL Editor에서 아래 SQL의 `('예전 이름', '새 이름')`을 고쳐서 실행합니다. 마지막에 동아리별 학생·도안 수가 나오니 예전 이름이 남아 있지 않은지 확인하세요.
+     ```sql
+     with renames(old_name, new_name) as (values
+       ('AI 동아리 1', 'AI 수학 실험실'),
+       ('AI 동아리 2', '메이크온'),
+       ('AI 동아리 3', '크리에이티브 AI')
+     ), moved_students as (
+       update public.students t set club = r.new_name from renames r where t.club = r.old_name
+     )
+     update public.designs t set club = r.new_name from renames r where t.club = r.old_name;
+
+     select '학생' as 구분, club as 동아리, count(*) as 개수 from public.students group by club
+     union all
+     select '도안', club, count(*) from public.designs group by club
+     order by 1, 2;
+     ```
+   - **로컬 테스트:** 서버를 끈 뒤에 `data/db.json`을 메모장으로 열어 `"club":"예전 이름"`을 `"club":"새 이름"`으로 모두 바꿉니다. (서버가 켜져 있으면 끌 때 예전 내용으로 다시 저장됩니다)
+2. `CLUBS`를 새 이름으로 바꿉니다. (Render: **Environment**에서 수정 후 저장 / 로컬: `.env` 수정 후 서버 다시 시작)
 
 ## 폴더 구조
 

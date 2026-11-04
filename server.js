@@ -19,7 +19,7 @@ const ACCESS_CODE = process.env.ACCESS_CODE || "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const DAILY_LIMIT = Number(process.env.DAILY_MESSAGE_LIMIT || 40);
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 8);
-const CLUBS = (process.env.CLUBS || "AI 동아리 1,AI 동아리 2,AI 동아리 3")
+const CLUBS = (process.env.CLUBS || "AI 수학 실험실,메이크온,크리에이티브 AI")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -122,7 +122,11 @@ app.post("/api/login", async (req, res) => {
     return res.status(409).json({ error: "이미 다른 이름으로 등록된 학번입니다. 선생님께 문의하세요." });
   }
   if (student.club !== club) {
-    return res.status(409).json({ error: `이 학번은 '${student.club}' 동아리로 등록되어 있습니다.` });
+    // CLUBS 에서 이름만 바꾸고 저장된 이름은 그대로 둔 경우: 학생은 그 이름을 고를 수 없으므로 선생님께 안내한다.
+    const error = CLUBS.includes(student.club)
+      ? `이 학번은 '${student.club}' 동아리로 등록되어 있습니다.`
+      : `이 학번은 '${student.club}' 동아리로 등록되어 있는데, 지금은 없는 동아리 이름입니다. 선생님께 문의하세요.`;
+    return res.status(409).json({ error });
   }
   const token = crypto.randomBytes(24).toString("hex");
   await store.addToken(student.id, token);
