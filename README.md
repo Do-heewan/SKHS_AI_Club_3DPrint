@@ -66,7 +66,7 @@
 
 ③ **STL 파일 올리기:** Tinkercad 등에서 만든 작품을 갤러리에 올립니다.
 
-### 선생님 페이지(live.html/admin.html)
+### 선생님 페이지(`/live.html`, `/admin.html`)
 
 >관리자 비밀번호로 들어갑니다.
 
